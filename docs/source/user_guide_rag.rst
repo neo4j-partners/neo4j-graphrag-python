@@ -80,6 +80,7 @@ If OpenAI cannot be used directly, there are a few available alternatives:
 - Use Mistral LLM
 - Use Cohere.
 - Use a local Ollama model.
+- Use AWS Bedrock (Claude, Titan, etc.).
 - Implement a custom interface.
 - Utilize any LangChain chat model.
 
@@ -229,6 +230,33 @@ it can be queried using the following:
         # host="...",  # when using a remote server
     )
     llm.invoke("say something")
+
+
+Using AWS Bedrock LLM
+---------------------
+
+AWS Bedrock provides access to foundation models through AWS infrastructure.
+The `BedrockLLM` class uses the Converse API to interact with models like Claude:
+
+.. code:: python
+
+    from neo4j_graphrag.llm import BedrockLLM
+
+    # Uses AWS credentials from environment, ~/.aws/credentials, or IAM role
+    llm = BedrockLLM(
+        model_id="anthropic.claude-sonnet-4-5-20250929-v1:0",
+        region_name="us-east-1",
+    )
+    llm.invoke("say something")
+
+
+.. note::
+
+    In order to run this code, the `boto3` Python package needs to be installed:
+    `pip install "neo4j-graphrag[bedrock]"`
+
+
+See :ref:`bedrockllm`.
 
 
 Using a Model from LangChain
@@ -516,6 +544,7 @@ Currently, this package supports the following embedders:
 - :ref:`cohereembeddings`
 - :ref:`azureopenaiembeddings`
 - :ref:`ollamaembeddings`
+- :ref:`bedrockembeddings`
 
 The `OpenAIEmbeddings` was illustrated previously. Here is how to use the `SentenceTransformerEmbeddings`:
 

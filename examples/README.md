@@ -73,6 +73,7 @@ are listed in [the last section of this file](#customize).
 - [Cohere](./customize/llms/cohere_llm.py)
 - [Anthropic (Claude)](./customize/llms/anthropic_llm.py)
 - [Ollama](./customize/llms/ollama_llm.py)
+- [AWS Bedrock (Claude)](./customize/llms/bedrock_llm.py)
 - [Custom LLM](./customize/llms/custom_llm.py)
 
 - [Message history](./customize/llms/llm_with_message_history.py)
@@ -97,6 +98,7 @@ are listed in [the last section of this file](#customize).
 - [MistralAI](./customize/embeddings/mistalai_embeddings.py)
 - [Cohere](./customize/embeddings/cohere_embeddings.py)
 - [Ollama](./customize/embeddings/ollama_embeddings.py)
+- [AWS Bedrock](./customize/embeddings/bedrock_embeddings.py)
 - [Custom LLM](./customize/embeddings/custom_embeddings.py)
 
 
