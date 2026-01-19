@@ -25,7 +25,7 @@ from neo4j_graphrag.utils.rate_limit import RateLimitHandler, rate_limit_handler
 try:
     import boto3
 except ImportError:
-    boto3 = None  # type: ignore[assignment]
+    boto3 = None
 
 
 class BedrockEmbeddings(Embedder):
