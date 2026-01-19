@@ -102,7 +102,7 @@ def test_bedrock_llm_default_model(mock_boto3: Mock) -> None:
     llm.invoke("test")
 
     call_args = mock_client.converse.call_args
-    assert call_args.kwargs["modelId"] == "anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert call_args.kwargs["modelId"] == "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 @patch("neo4j_graphrag.llm.bedrock_llm.boto3")

@@ -69,9 +69,15 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
     the unified Converse API. It supports Claude 4.x models and other
     Bedrock-hosted models with a consistent interface.
 
+    Note:
+        Newer models (Claude Sonnet 4.5, Claude 3.5, etc.) require inference
+        profile IDs instead of direct model IDs. The format is
+        ``{region}.{provider}.{model}``, e.g., ``us.anthropic.claude-sonnet-4-5-20250929-v1:0``.
+        See https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html
+
     Args:
-        model_id (str): The Bedrock model identifier.
-            Defaults to Claude Sonnet 4.5.
+        model_id (str): The Bedrock model or inference profile identifier.
+            Defaults to Claude Sonnet 4.5 (US inference profile).
         region_name (str, optional): AWS region name. Falls back to
             AWS_REGION or AWS_DEFAULT_REGION environment variable.
         inference_profile_id (str, optional): Inference profile ARN for
@@ -97,14 +103,14 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
 
     Example with custom model:
         >>> llm = BedrockLLM(
-        ...     model_id="anthropic.claude-3-5-haiku-20241022-v1:0",
+        ...     model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0",
         ...     model_params={"temperature": 0.7, "maxTokens": 1000}
         ... )
     """
 
     def __init__(
         self,
-        model_id: str = "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         region_name: Optional[str] = None,
         inference_profile_id: Optional[str] = None,
         client: Optional[Any] = None,

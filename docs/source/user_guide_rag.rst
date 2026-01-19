@@ -243,8 +243,9 @@ The `BedrockLLM` class uses the Converse API to interact with models like Claude
     from neo4j_graphrag.llm import BedrockLLM
 
     # Uses AWS credentials from environment, ~/.aws/credentials, or IAM role
+    # model_id uses inference profile format: {region}.{provider}.{model}
     llm = BedrockLLM(
-        model_id="anthropic.claude-sonnet-4-5-20250929-v1:0",
+        model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         region_name="us-east-1",
     )
     llm.invoke("say something")
@@ -254,6 +255,14 @@ The `BedrockLLM` class uses the Converse API to interact with models like Claude
 
     In order to run this code, the `boto3` Python package needs to be installed:
     `pip install "neo4j-graphrag[bedrock]"`
+
+.. note::
+
+    **Inference Profiles:** Newer Bedrock models (Claude Sonnet 4.5, Claude 3.5, etc.) require
+    using inference profile IDs instead of direct model IDs. The format is
+    ``{region}.{provider}.{model}``, for example ``us.anthropic.claude-sonnet-4-5-20250929-v1:0``.
+    See `AWS Bedrock Inference Profiles <https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html>`_
+    for the full list of supported profile IDs.
 
 
 See :ref:`bedrockllm`.
