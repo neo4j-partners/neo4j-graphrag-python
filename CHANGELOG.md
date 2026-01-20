@@ -2,9 +2,25 @@
 
 ## Next
 
+## 1.13.0
+
+### Added
+
+- Added `use_merge` parameter to `Neo4jWriter` (default: `True`) to use MERGE instead of CREATE for entity nodes, preventing duplicate nodes when the same entity is extracted from multiple chunks.
+- Added `merge_property` parameter to `Neo4jWriter` (default: `"name"`) to specify the property used as the merge key.
+- Added validation that separates nodes into three categories: entity nodes with merge_property (MERGE), lexical graph nodes like Chunk/Document (CREATE), and entity nodes missing merge_property (skipped with warning).
+- Enhanced `KGWriterModel` metadata to include `nodes_created` and `nodes_skipped_missing_merge_property` counts.
+- Added `upsert_node_query_merge()` function in `neo4j_queries.py` for MERGE-based node upserts using `apoc.merge.node`.
+
+### Changed
+
+- `Neo4jWriter` now defaults to MERGE behavior (`use_merge=True`) for entity nodes, improving compatibility with uniqueness constraints.
+- MERGE now uses only the primary entity label (e.g., `Company`) rather than all labels, allowing seamless integration with pre-existing nodes created outside the pipeline.
+- Lexical graph nodes (Chunk, Document) always use CREATE since each is unique and doesn't need deduplication.
+
 ## 1.12.0
 
-## Added
+### Added
 
 - Support for Python 3.14
 - Support for version 6.0.0 of the Neo4j Python driver
