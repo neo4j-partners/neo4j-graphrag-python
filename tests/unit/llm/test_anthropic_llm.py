@@ -22,13 +22,17 @@ import anthropic
 import pytest
 from neo4j_graphrag.exceptions import LLMGenerationError
 from neo4j_graphrag.experimental.components.types import Neo4jGraph
-from neo4j_graphrag.llm.anthropic_llm import (
-    AnthropicLLM,
+from neo4j_graphrag.llm._structured_output import (
     _is_open_map,
     _resolve_ref,
-    _restore_open_maps,
-    _to_anthropic_schema,
 )
+from neo4j_graphrag.llm._structured_output import (
+    restore_open_maps as _restore_open_maps,
+)
+from neo4j_graphrag.llm._structured_output import (
+    to_constrained_json_schema as _to_anthropic_schema,
+)
+from neo4j_graphrag.llm.anthropic_llm import AnthropicLLM
 from neo4j_graphrag.llm.types import LLMResponse
 from neo4j_graphrag.types import LLMMessage
 from pydantic import BaseModel, ConfigDict

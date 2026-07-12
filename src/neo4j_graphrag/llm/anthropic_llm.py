@@ -13,7 +13,6 @@
 #  limitations under the License.
 from __future__ import annotations
 
-import json
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -28,6 +27,12 @@ from typing import (
 from pydantic import BaseModel, ValidationError
 
 from neo4j_graphrag.exceptions import LLMGenerationError
+from neo4j_graphrag.llm._structured_output import (
+    restore_structured_output_text,
+)
+from neo4j_graphrag.llm._structured_output import (
+    to_constrained_json_schema as _to_anthropic_schema,
+)
 from neo4j_graphrag.llm.base import LLMBase
 from neo4j_graphrag.llm.types import (
     BaseMessage,
@@ -77,93 +82,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _is_open_map(schema: dict[str, Any]) -> bool:
-    """True if *schema* is an open-ended map (``dict[str, X]``) rather than a
-    fixed-property object."""
-    return (
-        schema.get("type") == "object"
-        and isinstance(schema.get("additionalProperties"), dict)
-        and not schema.get("properties")
-    )
-
-
-def _to_anthropic_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Rewrite a JSON schema into Anthropic's constrained-decoding subset.
-
-    Open maps become closed ``[{"key": ..., "value": ...}]`` arrays, and every
-    fixed-property object gets ``additionalProperties: false`` plus a full
-    ``required`` list.
-    """
-    schema = dict(schema)
-    if _is_open_map(schema):
-        value_schema = _to_anthropic_schema(schema["additionalProperties"])
-        return {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"key": {"type": "string"}, "value": value_schema},
-                "required": ["key", "value"],
-                "additionalProperties": False,
-            },
-        }
-    if schema.get("type") == "object" and "properties" in schema:
-        schema["properties"] = {
-            key: _to_anthropic_schema(prop)
-            for key, prop in schema["properties"].items()
-        }
-        schema["additionalProperties"] = False
-        schema["required"] = list(schema["properties"].keys())
-    if "items" in schema:
-        schema["items"] = _to_anthropic_schema(schema["items"])
-    for combinator in ("anyOf", "oneOf", "allOf"):
-        if combinator in schema:
-            schema[combinator] = [
-                _to_anthropic_schema(variant) for variant in schema[combinator]
-            ]
-    if "$defs" in schema:
-        schema["$defs"] = {
-            name: _to_anthropic_schema(def_schema)
-            for name, def_schema in schema["$defs"].items()
-        }
-    return schema
-
-
-def _resolve_ref(schema: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
-    """Resolve a local ``$ref`` against *defs*, if present."""
-    ref = schema.get("$ref")
-    if isinstance(ref, str):
-        return cast("dict[str, Any]", defs.get(ref.split("/")[-1], {}))
-    return schema
-
-
-def _restore_open_maps(value: Any, schema: dict[str, Any], defs: dict[str, Any]) -> Any:
-    """Convert key/value-pair arrays produced for Anthropic back into maps.
-
-    Walks *value* alongside the caller's *original* (untransformed) JSON schema,
-    so empty maps (``[]`` -> ``{}``) and genuine empty arrays are disambiguated
-    correctly.
-    """
-    schema = _resolve_ref(schema, defs)
-    if _is_open_map(schema) and isinstance(value, list):
-        value_schema = schema["additionalProperties"]
-        return {
-            item["key"]: _restore_open_maps(item["value"], value_schema, defs)
-            for item in value
-        }
-    if schema.get("type") == "object" and isinstance(value, dict):
-        properties = schema.get("properties", {})
-        return {
-            key: (
-                _restore_open_maps(val, properties[key], defs)
-                if key in properties
-                else val
-            )
-            for key, val in value.items()
-        }
-    if schema.get("type") == "array" and isinstance(value, list):
-        item_schema = schema.get("items", {})
-        return [_restore_open_maps(item, item_schema, defs) for item in value]
-    return value
+# The transform and restore helpers now live in
+# ``neo4j_graphrag.llm._structured_output`` and are shared with ``BedrockLLM``,
+# which uses the same constrained-decoding subset:
+# ``to_constrained_json_schema`` (imported above as ``_to_anthropic_schema``)
+# closes the schema, and ``restore_structured_output_text`` reverses it on the
+# response.
 
 
 # pylint: disable=redefined-builtin, arguments-differ, raise-missing-from, no-else-return, import-outside-toplevel
@@ -477,18 +401,7 @@ class AnthropicLLM(LLMBase):
         by the caller's Pydantic model, so ``content`` round-trips unchanged.
         Remove when cross-provider strict JSON schema handling is added.
         """
-        if not (
-            isinstance(response_format, type) and issubclass(response_format, BaseModel)
-        ):
-            return text
-        original_schema = response_format.model_json_schema()
-        defs = original_schema.get("$defs", {})
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return text
-        restored = _restore_open_maps(data, original_schema, defs)
-        return json.dumps(restored)
+        return restore_structured_output_text(text, response_format)
 
     def get_messages(
         self,

@@ -14,12 +14,14 @@
 #  limitations under the License.
 from __future__ import annotations
 
+import json
 from typing import Any, Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from neo4j_graphrag.exceptions import LLMGenerationError
+from neo4j_graphrag.experimental.components.types import Neo4jGraph
 from neo4j_graphrag.llm import BedrockLLM
 from neo4j_graphrag.types import LLMMessage
 
@@ -46,7 +48,7 @@ def _make_converse_response(text: str = "generated text") -> dict[str, Any]:
 def test_bedrock_llm_missing_dependency() -> None:
     with patch("neo4j_graphrag.llm.bedrock_llm.boto3", None):
         with pytest.raises(ImportError) as exc:
-            BedrockLLM(model_name="us.anthropic.claude-sonnet-4-20250514-v1:0")
+            BedrockLLM(model_name="us.anthropic.claude-sonnet-4-5-20250929-v1:0")
         assert "Could not import boto3 python client" in str(exc.value)
 
 
@@ -77,7 +79,7 @@ def test_bedrock_invoke_happy_path(mock_boto3: MagicMock) -> None:
     mock_client = mock_boto3.client.return_value
     mock_client.converse.return_value = _make_converse_response("hello world")
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     response = llm.invoke("hello")
 
     assert response.content == "hello world"
@@ -88,7 +90,7 @@ def test_bedrock_invoke_with_message_history(mock_boto3: MagicMock) -> None:
     mock_client = mock_boto3.client.return_value
     mock_client.converse.return_value = _make_converse_response("response")
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     history: list[LLMMessage] = [
         {"role": "user", "content": "previous question"},
         {"role": "assistant", "content": "previous answer"},
@@ -105,7 +107,7 @@ def test_bedrock_invoke_with_system_instruction(mock_boto3: MagicMock) -> None:
     mock_client = mock_boto3.client.return_value
     mock_client.converse.return_value = _make_converse_response("response")
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     response = llm.invoke("hello", system_instruction="You are a bot")
 
     assert response.content == "response"
@@ -118,7 +120,7 @@ async def test_bedrock_ainvoke_happy_path(mock_boto3: MagicMock) -> None:
     mock_client = mock_boto3.client.return_value
     mock_client.converse.return_value = _make_converse_response("async response")
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     response = await llm.ainvoke("hello")
 
     assert response.content == "async response"
@@ -134,7 +136,7 @@ def test_bedrock_invoke_v2_happy_path(mock_boto3: MagicMock) -> None:
         {"role": "user", "content": "hello"},
     ]
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     response = llm.invoke(messages)
 
     assert response.content == "v2 response"
@@ -151,7 +153,7 @@ async def test_bedrock_ainvoke_v2_happy_path(mock_boto3: MagicMock) -> None:
 
     messages: list[LLMMessage] = [{"role": "user", "content": "hello"}]
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     response = await llm.ainvoke(messages)
 
     assert response.content == "async v2"
@@ -161,7 +163,7 @@ def test_bedrock_invoke_error(mock_boto3: MagicMock) -> None:
     mock_client = mock_boto3.client.return_value
     mock_client.converse.side_effect = Exception("API error")
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     with pytest.raises(LLMGenerationError):
         llm.invoke("hello")
 
@@ -170,18 +172,96 @@ def test_bedrock_invoke_empty_response(mock_boto3: MagicMock) -> None:
     mock_client = mock_boto3.client.return_value
     mock_client.converse.return_value = {"output": {"message": {"content": []}}}
 
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     with pytest.raises(LLMGenerationError, match="LLM returned empty response"):
         llm.invoke("hello")
 
 
-def test_bedrock_invoke_v2_with_response_format_raises_error(
+def test_bedrock_supports_structured_output() -> None:
+    assert BedrockLLM.supports_structured_output is True
+
+
+def test_bedrock_invoke_v2_with_dict_response_format(mock_boto3: MagicMock) -> None:
+    mock_client = mock_boto3.client.return_value
+    mock_client.converse.return_value = _make_converse_response('{"answer": 42}')
+
+    messages: list[LLMMessage] = [{"role": "user", "content": "hello"}]
+    output_config = {"textFormat": {"type": "json_schema", "structure": {}}}
+
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    response = llm.invoke(messages, response_format=output_config)
+
+    # a raw dict is passed straight through as the outputConfig
+    call_kwargs = mock_client.converse.call_args[1]
+    assert call_kwargs["outputConfig"] == output_config
+    # non-pydantic response_format leaves the content untouched
+    assert response.content == '{"answer": 42}'
+
+
+def test_bedrock_invoke_v2_with_pydantic_response_format(mock_boto3: MagicMock) -> None:
+    # the model is constrained to emit open maps as key/value-pair arrays
+    constrained = json.dumps(
+        {
+            "nodes": [
+                {
+                    "id": "1",
+                    "label": "Person",
+                    "properties": [{"key": "name", "value": "Paul"}],
+                    "embedding_properties": [],
+                }
+            ],
+            "relationships": [],
+        }
+    )
+    mock_client = mock_boto3.client.return_value
+    mock_client.converse.return_value = _make_converse_response(constrained)
+
+    messages: list[LLMMessage] = [{"role": "user", "content": "extract"}]
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    response = llm.invoke(messages, response_format=Neo4jGraph)
+
+    # outputConfig carries a json_schema with the schema as a JSON string
+    call_kwargs = mock_client.converse.call_args[1]
+    json_schema = call_kwargs["outputConfig"]["textFormat"]["structure"]["jsonSchema"]
+    assert json_schema["name"] == "Neo4jGraph"
+    schema = json.loads(json_schema["schema"])
+    # open maps are closed and every object forbids extra properties
+    assert schema["additionalProperties"] is False
+
+    # the key/value arrays are restored to maps, so the content validates
+    graph = Neo4jGraph.model_validate_json(response.content)
+    assert graph.nodes[0].properties == {"name": "Paul"}
+    assert graph.nodes[0].embedding_properties == {}
+
+
+@pytest.mark.asyncio
+async def test_bedrock_ainvoke_v2_with_pydantic_response_format(
     mock_boto3: MagicMock,
 ) -> None:
-    messages: list[LLMMessage] = [{"role": "user", "content": "hello"}]
-    llm = BedrockLLM("us.anthropic.claude-sonnet-4-20250514-v1:0")
-    with pytest.raises(NotImplementedError):
-        llm.invoke(messages, response_format={"type": "json_object"})
+    constrained = json.dumps(
+        {
+            "nodes": [
+                {
+                    "id": "1",
+                    "label": "Person",
+                    "properties": [],
+                    "embedding_properties": [],
+                }
+            ],
+            "relationships": [],
+        }
+    )
+    mock_client = mock_boto3.client.return_value
+    mock_client.converse.return_value = _make_converse_response(constrained)
+
+    messages: list[LLMMessage] = [{"role": "user", "content": "extract"}]
+    llm = BedrockLLM("us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    response = await llm.ainvoke(messages, response_format=Neo4jGraph)
+
+    call_kwargs = mock_client.converse.call_args[1]
+    assert "outputConfig" in call_kwargs
+    graph = Neo4jGraph.model_validate_json(response.content)
+    assert graph.nodes[0].properties == {}
 
 
 def test_bedrock_invoke_with_model_params(mock_boto3: MagicMock) -> None:
@@ -189,7 +269,7 @@ def test_bedrock_invoke_with_model_params(mock_boto3: MagicMock) -> None:
     mock_client.converse.return_value = _make_converse_response("response")
 
     llm = BedrockLLM(
-        "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         model_params={"temperature": 0.5, "maxTokens": 512},
     )
     llm.invoke("hello")

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from typing import (
     Any,
@@ -34,6 +35,10 @@ from pydantic import BaseModel, ValidationError
 
 # project dependencies
 from neo4j_graphrag.exceptions import LLMGenerationError
+from neo4j_graphrag.llm._structured_output import (
+    restore_structured_output_text,
+    to_constrained_json_schema,
+)
 from neo4j_graphrag.llm.base import LLMInterface, LLMInterfaceV2
 from neo4j_graphrag.llm.types import (
     BaseMessage,
@@ -62,7 +67,7 @@ except ImportError:
     boto3 = None
 
 DEFAULT_BEDROCK_LLM_MODEL = os.getenv(
-    "BEDROCK_LLM_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    "BEDROCK_LLM_MODEL", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
 
 
@@ -72,7 +77,7 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
 
     Args:
         model_name (str): Bedrock model ID. Defaults to the ``BEDROCK_LLM_MODEL``
-            environment variable, or "us.anthropic.claude-sonnet-4-20250514-v1:0" if not set.
+            environment variable, or "us.anthropic.claude-sonnet-4-5-20250929-v1:0" if not set.
         model_params (Optional[dict]): Additional parameters passed to the model
             (e.g. ``{"temperature": 0.7, "maxTokens": 1024}``).
         region_name (Optional[str]): AWS region. Defaults to boto3 session default.
@@ -94,12 +99,14 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
         from neo4j_graphrag.llm import BedrockLLM
 
         llm = BedrockLLM(
-            model_name="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            model_name="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
             model_params={"temperature": 0.7, "maxTokens": 1024},
             region_name="us-east-1",
         )
         llm.invoke("Who is the mother of Paul Atreides?")
     """
+
+    supports_structured_output: bool = True
 
     def __init__(
         self,
@@ -214,17 +221,19 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
         response_format: Optional[Union[Type[BaseModel], dict[str, Any]]] = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        if response_format is not None:
-            raise NotImplementedError(
-                "BedrockLLM does not currently support structured output"
-            )
         try:
             system_instruction, messages = self.get_messages_v2(input)
+            if response_format is not None:
+                kwargs["outputConfig"] = self._build_output_config(response_format)
             converse_kwargs = self._build_converse_kwargs(
                 messages, system_instruction=system_instruction, **kwargs
             )
             response = self.client.converse(**converse_kwargs)
-            return self._parse_response(response)
+            llm_response = self._parse_response(response)
+            llm_response.content = restore_structured_output_text(
+                llm_response.content, response_format
+            )
+            return llm_response
         except Exception as e:
             raise LLMGenerationError(f"Error calling BedrockLLM: {e}") from e
 
@@ -252,14 +261,13 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
         response_format: Optional[Union[Type[BaseModel], dict[str, Any]]] = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        if response_format is not None:
-            raise NotImplementedError(
-                "BedrockLLM does not currently support structured output"
-            )
         try:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
-                None, self.__invoke_v2, input, response_format
+                None,
+                lambda: self.__invoke_v2(
+                    input, response_format=response_format, **kwargs
+                ),
             )
         except LLMGenerationError:
             raise
@@ -390,6 +398,42 @@ class BedrockLLM(LLMInterface, LLMInterfaceV2):
                 total_tokens=raw_usage.get("totalTokens"),
             )
         return LLMResponse(content="".join(text_parts), usage=usage)
+
+    @staticmethod
+    def _build_output_config(
+        response_format: Union[Type[BaseModel], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Builds the Bedrock outputConfig for structured output.
+
+        Bedrock's Converse API exposes a first-class structured-output mechanism
+        via ``outputConfig.textFormat`` with type "json_schema", which uses
+        constrained decoding to guarantee schema-conforming output. The schema
+        must be passed as a JSON-encoded string.
+
+        Args:
+            response_format: A Pydantic BaseModel subclass, or a dict already
+                matching Bedrock's outputConfig schema.
+
+        Returns:
+            A dict suitable for the ``outputConfig`` kwarg to ``converse``.
+        """
+        if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+            # Bedrock's structured output uses constrained decoding over the same
+            # closed JSON Schema subset as Anthropic; the shared transform closes
+            # open maps so node/relationship properties stay fillable.
+            schema = to_constrained_json_schema(response_format.model_json_schema())
+            return {
+                "textFormat": {
+                    "type": "json_schema",
+                    "structure": {
+                        "jsonSchema": {
+                            "name": response_format.__name__,
+                            "schema": json.dumps(schema),
+                        }
+                    },
+                }
+            }
+        return response_format
 
     def _get_tool_config(
         self, tools: Optional[Sequence[Tool]], tool_choice: Optional[str] = None
